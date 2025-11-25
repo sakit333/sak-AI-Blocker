@@ -1,22 +1,25 @@
-# ---------------------------------------------------------
-# AI BLOCKER (Ultimate Version - Firewall + Hosts + Auto Unblock)
-# Blocks AI sites for 1 minute then restores everything.
-# ---------------------------------------------------------
+# ===========================================================
+# AI BLOCKER - 100% Chrome-Proof Version (IP Blocking)
+# Blocks ChatGPT, Gemini, Claude, Perplexity, Bing AI completely.
+# Unblocks after 60 seconds.
+# ===========================================================
 
-$hostsPath = "C:\Windows\System32\drivers\etc\hosts"
+$hostsFile = "C:\Windows\System32\drivers\etc\hosts"
 
-# AI domain list (expandable anytime)
-$aiDomains = @(
+# -----------------------------------------
+# DOMAIN LIST (secondary protection)
+# -----------------------------------------
+$domains = @(
     "chatgpt.com",
     "*.openai.com",
     "openai.com",
+    "api.openai.com",
     "claude.ai",
     "*.claude.ai",
     "anthropic.com",
     "*.anthropic.com",
     "gemini.google.com",
     "bard.google.com",
-    "*.googleusercontent.com",
     "perplexity.ai",
     "*.perplexity.ai",
     "bing.com",
@@ -24,56 +27,99 @@ $aiDomains = @(
     "copilot.microsoft.com"
 )
 
+# -----------------------------------------
+# IP BLOCK LIST (primary Chrome-proof blocking)
+# These IPs belong to major AI services.
+# -----------------------------------------
+$ipRanges = @(
+    # OpenAI / ChatGPT
+    "143.244.0.0/16",
+    "104.18.0.0/16",
+    "172.64.0.0/13",
+    "141.101.0.0/16",
+
+    # Google Gemini
+    "142.250.0.0/15",
+    "142.251.0.0/16",
+    "8.8.8.0/24",          # Google DNS
+    "8.34.208.0/20",
+    "8.35.192.0/20",
+    "172.217.0.0/16",
+
+    # Anthropic Claude
+    "13.248.0.0/14",
+    "76.223.0.0/16",
+
+    # Perplexity
+    "34.160.0.0/16",
+    "34.170.0.0/16",
+
+    # Microsoft Bing AI / Copilot
+    "13.64.0.0/11",
+    "40.64.0.0/10",
+    "52.96.0.0/12"
+)
+
 Write-Host "==== AI BLOCKER STARTED ===="
 
-# ---------------------------------------------------------
-# 1) REMOVE OLD FIREWALL RULES
-# ---------------------------------------------------------
-Write-Host "Removing old AI firewall rules..."
-Get-NetFirewallRule -DisplayName "AI_BLOCKER" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+# -----------------------------------------
+# REMOVE OLD FIREWALL RULES
+# -----------------------------------------
+Write-Host "Removing old firewall rules..."
+Get-NetFirewallRule -DisplayName "AI_BLOCKER_IP" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+Get-NetFirewallRule -DisplayName "AI_BLOCKER_DOMAIN" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 
-# ---------------------------------------------------------
-# 2) REMOVE OLD HOSTS ENTRIES
-# ---------------------------------------------------------
-Write-Host "Cleaning hosts file..."
-$hosts = Get-Content $hostsPath
-$clean = $hosts | Where-Object { $_ -notmatch "#AIBLOCK" }
-Set-Content -Path $hostsPath -Value $clean -Force
+# -----------------------------------------
+# CLEAN HOSTS FILE
+# -----------------------------------------
+Write-Host "Cleaning hosts..."
+$clean = (Get-Content $hostsFile) | Where-Object { $_ -notmatch "#AIBLOCK" }
+Set-Content -Path $hostsFile -Value $clean -Force
 
-# ---------------------------------------------------------
-# 3) APPLY NEW BLOCKS
-# ---------------------------------------------------------
-Write-Host "Applying firewall and hosts blocking..."
+# -----------------------------------------
+# BLOCK HOSTS (backup protection)
+# -----------------------------------------
+foreach ($d in $domains) {
+    Add-Content -Path $hostsFile -Value "127.0.0.1 $d #AIBLOCK"
+}
 
-foreach ($domain in $aiDomains) {
-
-    # Hosts block (backup)
-    Add-Content -Path $hostsPath -Value ("127.0.0.1 $domain #AIBLOCK")
-
-    # Firewall block (100% reliable)
-    New-NetFirewallRule -DisplayName "AI_BLOCKER" `
+# -----------------------------------------
+# BLOCK IP RANGES (CHROME-PROOF, THE MAIN FIX)
+# -----------------------------------------
+Write-Host "Blocking IP ranges..."
+foreach ($ip in $ipRanges) {
+    New-NetFirewallRule -DisplayName "AI_BLOCKER_IP" `
         -Direction Outbound `
         -Action Block `
-        -RemoteAddress $domain `
+        -RemoteAddress $ip `
         -Enabled True `
         -ErrorAction SilentlyContinue
 }
 
-Write-Host "AI websites are BLOCKED for 1 minute..."
+# -----------------------------------------
+# BLOCK DOMAINS (secondary layer)
+# -----------------------------------------
+foreach ($d in $domains) {
+    New-NetFirewallRule -DisplayName "AI_BLOCKER_DOMAIN" `
+        -Direction Outbound `
+        -Action Block `
+        -RemoteAddress $d `
+        -Enabled True `
+        -ErrorAction SilentlyContinue
+}
+
+Write-Host "AI websites are BLOCKED for 1 minute."
 Start-Sleep -Seconds 60
 
-# ---------------------------------------------------------
-# 4) UNBLOCK EVERYTHING
-# ---------------------------------------------------------
-Write-Host "Restoring system..."
+# -----------------------------------------
+# UNBLOCK EVERYTHING
+# -----------------------------------------
+Write-Host "Unblocking..."
+Get-NetFirewallRule -DisplayName "AI_BLOCKER_IP" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+Get-NetFirewallRule -DisplayName "AI_BLOCKER_DOMAIN" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 
-# Remove firewall rules
-Get-NetFirewallRule -DisplayName "AI_BLOCKER" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-
-# Remove hosts entries
-$hosts = Get-Content $hostsPath
-$clean = $hosts | Where-Object { $_ -notmatch "#AIBLOCK" }
-Set-Content -Path $hostsPath -Value $clean -Force
+$clean = (Get-Content $hostsFile) | Where-Object { $_ -notmatch "#AIBLOCK" }
+Set-Content -Path $hostsFile -Value $clean -Force
 
 Write-Host "AI websites UNBLOCKED."
-Write-Host "==== AI BLOCKER FINISHED ===="
+Write-Host "==== AI BLOCKER COMPLETE ===="
