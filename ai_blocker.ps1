@@ -1,25 +1,21 @@
 <#
-===================================================================================
-    SCRIPT NAME : BlockAI_30min_sak_shetty_advancedGUI.ps1
-    AUTHOR      : DevOps Engineer - SAK_SHETTY
-    PURPOSE     : Advanced GUI version: block AI websites for 30 minutes,
-                 show polished GUI with logo, countdown, logging, password,
-                 run-once flag, and auto-cleanup (flag + script delete).
-    NOTES       : Run PowerShell AS ADMIN. Place "logo.png" in same folder (optional).
-===================================================================================
+Simple GUI AI Blocker (Option A)
+Author : DevOps Engineer - SAK_SHETTY
+Purpose: Block AI websites for 30 minutes with a simple WinForms GUI,
+         password protection, logging, run-once flag, auto-unblock and auto-delete.
+Notes  : Run PowerShell AS ADMIN. Put optional logo.png in same folder.
 #>
 
-# ------------------- PREPARE ENV -------------------
-[void][System.Reflection.Assembly]::LoadWithPartialName("presentationframework")
-[void][System.Reflection.Assembly]::LoadWithPartialName("system.windows.forms")
-[void][System.Reflection.Assembly]::LoadWithPartialName("system.drawing")
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
+# Paths and logging
 $scriptPath = $MyInvocation.MyCommand.Path
 $scriptDir  = Split-Path -Parent $scriptPath
-$logoFile   = Join-Path $scriptDir "logo.png"   # put your logo.png here (optional)
+$logoFile   = Join-Path $scriptDir "logo.png"   # optional
 $flagPath   = "$env:ProgramData\AI_Blocker_Executed.flag"
 $logDir     = "$env:ProgramData\AI_Block_Logs"
-if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
 $logFile    = Join-Path $logDir ("AI_Block_Log_{0}.txt" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
 
 function Write-Log {
@@ -28,271 +24,239 @@ function Write-Log {
     Add-Content -Path $logFile -Value $line
 }
 
-# ------------------- RUN-ONLY-ONCE PROTECTION -------------------
+# Domains (clear text for simplicity)
+$domains = @(
+    "chatgpt.com","openai.com","platform.openai.com","api.openai.com",
+    "claude.ai","anthropic.com","gemini.google.com","bard.google.com",
+    "ai.google.dev","copilot.microsoft.com","bingapis.com","huggingface.co",
+    "poe.com","perplexity.ai"
+)
+
+# Run-once protection
 if (Test-Path $flagPath) {
-    [System.Windows.MessageBox]::Show("This script has already run once on this machine. Exiting.","AI Blocker - SAK_SHETTY",[System.Windows.MessageBoxButton]::OK,[System.Windows.MessageBoxImage]::Warning) | Out-Null
+    [System.Windows.Forms.MessageBox]::Show("This machine already ran the AI blocker once. Exiting.","AI Blocker - SAK_SHETTY",[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
     exit
 }
+# Create flag now to avoid races
 New-Item -Path $flagPath -ItemType File -Force | Out-Null
 
-Write-Log "Script started. Preparing GUI."
+Write-Log "Script started."
 
-# ------------------- PASSWORD DIALOG (WinForms) -------------------
-Add-Type -AssemblyName System.Windows.Forms
-$form = New-Object System.Windows.Forms.Form
-$form.Text = "SAK_SHETTY - Authorization"
-$form.Size = New-Object System.Drawing.Size(380,150)
-$form.StartPosition = "CenterScreen"
-$form.FormBorderStyle = 'FixedDialog'
-$form.MaximizeBox = $false
+#
+# --- Password dialog (WinForms)
+#
+$pwdForm = New-Object System.Windows.Forms.Form
+$pwdForm.Text = "SAK_SHETTY - Authorization"
+$pwdForm.Size = New-Object System.Drawing.Size(380,150)
+$pwdForm.StartPosition = "CenterScreen"
+$pwdForm.FormBorderStyle = 'FixedDialog'
+$pwdForm.MaximizeBox = $false
 
 $lbl = New-Object System.Windows.Forms.Label
 $lbl.Text = "Enter script password:"
 $lbl.AutoSize = $true
 $lbl.Location = New-Object System.Drawing.Point(12,12)
-$form.Controls.Add($lbl)
+$pwdForm.Controls.Add($lbl)
 
 $txt = New-Object System.Windows.Forms.TextBox
 $txt.Location = New-Object System.Drawing.Point(15,36)
 $txt.Width = 340
 $txt.UseSystemPasswordChar = $true
-$form.Controls.Add($txt)
+$pwdForm.Controls.Add($txt)
 
 $btn = New-Object System.Windows.Forms.Button
 $btn.Text = "Submit"
 $btn.Location = New-Object System.Drawing.Point(140,72)
 $btn.Add_Click({
     if ($txt.Text -eq "sak_shetty") {
-        $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
-        $form.Close()
-    }
-    else {
+        $pwdForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $pwdForm.Close()
+    } else {
         [System.Windows.Forms.MessageBox]::Show("Incorrect password.","Authorization Failed",[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
     }
 })
-$form.Controls.Add($btn)
+$pwdForm.Controls.Add($btn)
 
-$result = $form.ShowDialog()
+$result = $pwdForm.ShowDialog()
 if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
-    Write-Log "Password dialog cancelled or incorrect. Exiting."
+    Write-Log "Password dialog canceled or wrong - exiting."
     exit
 }
-Write-Log "Password authentication successful."
+Write-Log "Password authenticated successfully."
 
-# ------------------- AES-ENCRYPTED DOMAIN LIST (deobfuscate) -------------------
-$EncryptedDomains = @"
-U2FsdGVkX1+zQcdxGz7AmZ9C6QvCwDg9kPr6m6fnMaY=
-U2FsdGVkX1+cNA40wIYHzdQ2xQKMkq1mJyI/JlaHu8k=
-U2FsdGVkX1+CvBDQnw2kCqWtOrOr5/nCZivVOnQFV2M=
-U2FsdGVkX1+gYo8UjjraX0RtT1/6XxC5hnDzPgNrSZ4=
-U2FsdGVkX1+JsqI0F5IJTt6agA5i5sWFYA/FGnKJNMY=
-U2FsdGVkX1+8bkihHn8JJw7jKODim90s33HBy3AyXao=
-U2FsdGVkX1+S76kYf1ixjJ1lG/KXZ3MuItlgH7a9ZgU=
-U2FsdGVkX1/8HHyFZGgkYlbDGj0eKc0EcygL2YFQ/Vo=
-"@
+#
+# --- Build main GUI (simple)
+#
+$mainForm = New-Object System.Windows.Forms.Form
+$mainForm.Text = "SAK_SHETTY - AI Blocker"
+$mainForm.Size = New-Object System.Drawing.Size(440,220)
+$mainForm.StartPosition = "CenterScreen"
+$mainForm.FormBorderStyle = 'FixedDialog'
+$mainForm.MaximizeBox = $false
 
-# (simple local key & iv for local use)
-$key = (1..32 | ForEach-Object { 65 }) # 32 x 'A'
-$iv  = (1..16 | ForEach-Object { 66 }) # 16 x 'B'
-
-$domains = @()
-foreach ($enc in $EncryptedDomains) {
-    try {
-        $bytes = [Convert]::FromBase64String($enc)
-        $aes = [System.Security.Cryptography.Aes]::Create()
-        $aes.Key = $key
-        $aes.IV  = $iv
-        $aes.Padding = "PKCS7"
-        $decryptor = $aes.CreateDecryptor()
-        $plain = $decryptor.TransformFinalBlock($bytes,0,$bytes.Length)
-        $domains += [System.Text.Encoding]::UTF8.GetString($plain)
-    } catch {
-        Write-Log "Failed decrypting domain entry: $_"
-    }
-}
-Write-Log "Domain list decrypted: $($domains -join ', ')"
-
-# ------------------- BUILD ADVANCED GUI (WPF via XAML) -------------------
-$xaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        Title="SAK_SHETTY — AI Blocker" Height="360" Width="620" WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
-  <Grid Background="#F4F7FB">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="110"/>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="60"/>
-    </Grid.RowDefinitions>
-
-    <!-- Header -->
-    <Border Grid.Row="0" Background="#0B5394" CornerRadius="0">
-      <Grid>
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,12,12,12">
-          <Image x:Name="LogoImage" Width="84" Height="84" Margin="0,0,12,0"/>
-          <StackPanel>
-            <TextBlock Text="SAK_SHETTY — EVENT AI BLOCKER" Foreground="White" FontSize="20" FontWeight="Bold"/>
-            <TextBlock Text="Restrict AI site access for competition (30 minutes)" Foreground="#DDEEFF" FontSize="12"/>
-          </StackPanel>
-        </StackPanel>
-      </Grid>
-    </Border>
-
-    <!-- Body -->
-    <StackPanel Grid.Row="1" Margin="18">
-      <TextBlock x:Name="StatusText" Text="Ready to block AI websites." FontSize="16" FontWeight="SemiBold" Margin="4"/>
-      <Border Background="White" CornerRadius="6" Padding="12" Margin="0,10,0,0">
-        <StackPanel>
-          <TextBlock Text="Actions" FontWeight="Bold" Margin="0,0,0,6"/>
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,6,0,0">
-            <Button x:Name="StartBtn" Width="120" Height="36" Margin="0,0,12,0">Start Blocking</Button>
-            <Button x:Name="CancelBtn" Width="120" Height="36">Cancel</Button>
-          </StackPanel>
-
-          <StackPanel Margin="0,12,0,0">
-            <TextBlock Text="Progress" FontWeight="Bold" Margin="0,6,0,6"/>
-            <ProgressBar x:Name="MainProgress" Height="18" Minimum="0" Maximum="100" Value="0" Width="540"/>
-            <TextBlock x:Name="ProgressDetails" Text="Ready." Margin="0,6,0,0" FontStyle="Italic"/>
-          </StackPanel>
-        </StackPanel>
-      </Border>
-    </StackPanel>
-
-    <!-- Footer -->
-    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,18,0">
-      <TextBlock Text="© DevOps Engineer - SAK_SHETTY" VerticalAlignment="Center" Margin="0,0,18,0"/>
-    </StackPanel>
-  </Grid>
-</Window>
-'@
-
-# Parse XAML and create window
-$reader = New-Object System.Xml.XmlNodeReader ([xml]$xaml)
-$window = [Windows.Markup.XamlReader]::Load($reader)
-
-# Get named controls
-$logoImg  = $window.FindName("LogoImage")
-$status   = $window.FindName("StatusText")
-$startBtn = $window.FindName("StartBtn")
-$cancelBtn= $window.FindName("CancelBtn")
-$progress = $window.FindName("MainProgress")
-$pd       = $window.FindName("ProgressDetails")
-
-# Load logo if present
+# Logo (optional)
 if (Test-Path $logoFile) {
     try {
-        $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
-        $bmp.BeginInit()
-        $bmp.UriSource = (New-Object System.Uri($logoFile))
-        $bmp.CacheOption = "OnLoad"
-        $bmp.EndInit()
-        $logoImg.Source = $bmp
+        $picture = New-Object System.Windows.Forms.PictureBox
+        $picture.SizeMode = 'Zoom'
+        $picture.Location = New-Object System.Drawing.Point(12,12)
+        $picture.Size = New-Object System.Drawing.Size(80,80)
+        $picture.Image = [System.Drawing.Image]::FromFile($logoFile)
+        $mainForm.Controls.Add($picture)
     } catch {
-        Write-Log "Failed loading logo image: $_"
+        Write-Log "Failed loading logo: $_"
     }
-} else {
-    Write-Log "Logo file not found at $logoFile — continuing without logo."
 }
 
-# Helper: Apply firewall rules job
-function Start-ApplyRulesJob {
+# Title label
+$title = New-Object System.Windows.Forms.Label
+$title.Text = "Block AI websites for 30 minutes"
+$title.Font = New-Object System.Drawing.Font("Segoe UI",11,[System.Drawing.FontStyle]::Bold)
+$title.AutoSize = $true
+$title.Location = New-Object System.Drawing.Point(110,24)
+$mainForm.Controls.Add($title)
+
+# Status label
+$status = New-Object System.Windows.Forms.Label
+$status.Text = "Status: Ready"
+$status.AutoSize = $true
+$status.Location = New-Object System.Drawing.Point(110,60)
+$mainForm.Controls.Add($status)
+
+# Progress bar
+$pb = New-Object System.Windows.Forms.ProgressBar
+$pb.Location = New-Object System.Drawing.Point(20,100)
+$pb.Size = New-Object System.Drawing.Size(390,20)
+$pb.Minimum = 0
+$pb.Maximum = 100
+$pb.Value = 0
+$mainForm.Controls.Add($pb)
+
+# Start button
+$startBtn = New-Object System.Windows.Forms.Button
+$startBtn.Text = "Start Blocking"
+$startBtn.Location = New-Object System.Drawing.Point(90,140)
+$startBtn.Size = New-Object System.Drawing.Size(120,30)
+$mainForm.Controls.Add($startBtn)
+
+# Cancel button
+$cancelBtn = New-Object System.Windows.Forms.Button
+$cancelBtn.Text = "Cancel"
+$cancelBtn.Location = New-Object System.Drawing.Point(240,140)
+$cancelBtn.Size = New-Object System.Drawing.Size(120,30)
+$mainForm.Controls.Add($cancelBtn)
+
+# Timer for progress animation while applying rules
+$animTimer = New-Object System.Windows.Forms.Timer
+$animTimer.Interval = 150
+$animCounter = 0
+
+# Timer for countdown (used later)
+$countdownTimer = New-Object System.Windows.Forms.Timer
+$countdownTimer.Interval = 1000
+$countdownRemaining = 0
+
+# Job objects holders
+$applyJob = $null
+$removeJob = $null
+
+# Helper: apply rules (job)
+$applyScript = {
     param($domains, $logFile)
-    Write-Log "Starting ApplyRules job..."
-    $script = {
-        param($domains, $logFile)
-        foreach ($d in $domains) {
+    foreach ($d in $domains) {
+        try {
+            # Try RemoteFqdn first (works on newer Windows)
+            New-NetFirewallRule -DisplayName ("BLOCK_AI_{0}" -f $d) -Direction Outbound -Action Block -RemoteFqdn $d -Profile Any -ErrorAction Stop
+            Add-Content -Path $logFile -Value ("[{0}] Blocked (FQDN): {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $d)
+        } catch {
+            # fallback: resolve IPs and create rules per IP
             try {
-                New-NetFirewallRule -DisplayName ("BLOCK_AI_{0}" -f $d) -Direction Outbound -Action Block -RemoteAddress $d -Profile Any -ErrorAction SilentlyContinue
-                Add-Content -Path $logFile -Value ("[{0}] Blocked: {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $d)
-                Start-Sleep -Milliseconds 250
+                $ips = [System.Net.Dns]::GetHostAddresses($d) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | ForEach-Object { $_.IPAddressToString } | Select-Object -Unique
+                if ($ips.Count -gt 0) {
+                    foreach ($ip in $ips) {
+                        New-NetFirewallRule -DisplayName ("BLOCK_AI_{0}_{1}" -f $d, $ip) -Direction Outbound -Action Block -RemoteAddress $ip -Profile Any -ErrorAction SilentlyContinue
+                        Add-Content -Path $logFile -Value ("[{0}] Blocked (IP): {1} -> {2}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $d, $ip)
+                    }
+                } else {
+                    Add-Content -Path $logFile -Value ("[{0}] DNS resolve gave no IPv4 for {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $d)
+                }
             } catch {
                 Add-Content -Path $logFile -Value ("[{0}] ERROR blocking {1}: {2}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $d, $_)
             }
         }
-        Add-Content -Path $logFile -Value ("[{0}] ApplyRules job completed." -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
+        Start-Sleep -Milliseconds 200
     }
-    return Start-Job -ScriptBlock $script -ArgumentList ($domains, $logFile)
+    Add-Content -Path $logFile -Value ("[{0}] ApplyRules job completed." -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
 }
 
-# Helper: Remove firewall rules job
-function Start-RemoveRulesJob {
+# Helper: remove rules (job)
+$removeScript = {
     param($logFile)
-    $script = {
-        param($logFile)
-        try {
-            Get-NetFirewallRule | Where-Object { $_.DisplayName -like "BLOCK_AI_*" } | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-            Add-Content -Path $logFile -Value ("[{0}] RemoveRules job completed." -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
-        } catch {
-            Add-Content -Path $logFile -Value ("[{0}] ERROR removing rules: {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $_)
-        }
+    try {
+        Get-NetFirewallRule | Where-Object { $_.DisplayName -like "BLOCK_AI_*" } | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+        Add-Content -Path $logFile -Value ("[{0}] RemoveRules job completed." -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
+    } catch {
+        Add-Content -Path $logFile -Value ("[{0}] ERROR removing rules: {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $_)
     }
-    return Start-Job -ScriptBlock $script -ArgumentList ($logFile)
 }
 
-# Variables for timers
-$applyJob = $null
-$animationTimer = New-Object System.Windows.Threading.DispatcherTimer
-$animationTimer.Interval = [TimeSpan]::FromMilliseconds(150)
-
-# Animation counter
-$anim = 0
-
-$animationTimer.Add_Tick({
-    # animate progress while job is running
-    if ($applyJob -ne $null -and $applyJob.State -eq "Running") {
-        $anim = ($anim + 3) % 100
-        $progress.Value = [int]$anim
-        $pd.Text = "Applying rules... " + $progress.Value + "%"
-    } elseif ($applyJob -ne $null -and $applyJob.State -ne "Running") {
-        $animationTimer.Stop()
-        $progress.Value = 100
-        $pd.Text = "All rules applied."
-        $status.Text = "AI websites blocked successfully."
-        Write-Log "ApplyRules job finished (state: $($applyJob.State))."
-        # start countdown window
-        Start-CountdownWindow
-    } else {
-        # idle small animation
-        $anim = ($anim + 1) % 100
-        if ($progress.Value -lt 10) { $progress.Value = $anim }
+# Anim timer Tick event
+$animTimer.Add_Tick({
+    $animCounter = ($animCounter + 4) % 100
+    $pb.Value = $animCounter
+    if ($applyJob -ne $null) {
+        $jobState = $applyJob.State
+        if ($jobState -ne "Running") {
+            # job finished
+            $animTimer.Stop()
+            $pb.Value = 100
+            $status.Text = "Status: Rules applied. Starting 30-minute countdown..."
+            Write-Log "Apply job finished (state=$jobState)."
+            # start countdown (30 min)
+            $countdownRemaining = 30 * 60
+            $countdownTimer.Start()
+            # show countdown window
+            Show-CountdownWindow
+        }
     }
 })
 
-# Countdown window function
-function Start-CountdownWindow {
-    param()
-    $durationSec = 30 * 60  # 30 minutes
-    Write-Log "Starting countdown for $durationSec seconds."
-    $cdXaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        Title="AI Blocker - Timer" Height="180" Width="420" WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
-  <Grid Background="#FFFFFF">
-    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-      <TextBlock Text="AI access is temporarily disabled" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6"/>
-      <TextBlock x:Name="TimerText" Text="00:00:00" FontSize="28" FontWeight="Bold" Foreground="#0B5394" HorizontalAlignment="Center" Margin="0,6,0,6"/>
-      <TextBlock Text="This window will close automatically when the timer ends." FontSize="12" HorizontalAlignment="Center" Foreground="#333"/>
-    </StackPanel>
-  </Grid>
-</Window>
-'@
-    $reader2 = New-Object System.Xml.XmlNodeReader ([xml]$cdXaml)
-    $cdWindow = [Windows.Markup.XamlReader]::Load($reader2)
-    $timerText = $cdWindow.FindName("TimerText")
-    $cdWindow.Show()
+# Countdown window (simple)
+function Show-CountdownWindow {
+    # create a small window showing remaining time
+    $cdForm = New-Object System.Windows.Forms.Form
+    $cdForm.Text = "AI Blocker - Timer"
+    $cdForm.Size = New-Object System.Drawing.Size(360,140)
+    $cdForm.StartPosition = "CenterScreen"
+    $cdForm.FormBorderStyle = 'FixedDialog'
+    $cdForm.MaximizeBox = $false
 
-    $count = $durationSec
-    $tick = New-Object System.Windows.Threading.DispatcherTimer
-    $tick.Interval = [TimeSpan]::FromSeconds(1)
-    $tick.Add_Tick({
-        if ($count -le 0) {
-            $tick.Stop()
-            $cdWindow.Close()
-            Write-Log "Countdown completed."
-            # remove firewall rules (background)
-            $rmJob = Start-RemoveRulesJob -logFile $logFile
-            Wait-Job -Job $rmJob
-            Receive-Job -Job $rmJob | Out-Null
-            Remove-Job -Job $rmJob -Force -ErrorAction SilentlyContinue
-            Write-Log "Firewall rules removed after countdown."
-            # delete flag file
+    $lbl1 = New-Object System.Windows.Forms.Label
+    $lbl1.Text = "AI access will be restored in:"
+    $lbl1.Font = New-Object System.Drawing.Font("Segoe UI",10,[System.Drawing.FontStyle]::Regular)
+    $lbl1.AutoSize = $true
+    $lbl1.Location = New-Object System.Drawing.Point(20,18)
+    $cdForm.Controls.Add($lbl1)
+
+    $lblTimer = New-Object System.Windows.Forms.Label
+    $lblTimer.Text = "30:00"
+    $lblTimer.Font = New-Object System.Drawing.Font("Segoe UI",18,[System.Drawing.FontStyle]::Bold)
+    $lblTimer.AutoSize = $true
+    $lblTimer.Location = New-Object System.Drawing.Point(20,50)
+    $cdForm.Controls.Add($lblTimer)
+
+    # countdown tick event updates label
+    $countdownTimer.Add_Tick({
+        if ($countdownRemaining -le 0) {
+            $countdownTimer.Stop()
+            Write-Log "Countdown finished."
+            # remove firewall rules in background job
+            $removeJob = Start-Job -ScriptBlock $removeScript -ArgumentList ($logFile)
+            Wait-Job -Job $removeJob
+            Receive-Job -Job $removeJob | Out-Null
+            Remove-Job -Job $removeJob -Force -ErrorAction SilentlyContinue
+            Write-Log "Firewall rules removed."
+            # delete flag
             if (Test-Path $flagPath) {
                 try {
                     Remove-Item $flagPath -Force -ErrorAction SilentlyContinue
@@ -301,47 +265,45 @@ function Start-CountdownWindow {
                     Write-Log "Failed deleting flag: $_"
                 }
             }
-            # auto self-delete (use cmd to delete after process exits)
+            # auto self-delete
             Write-Log "Initiating auto self-delete."
             Start-Sleep -Milliseconds 500
             cmd /c "del `"$scriptPath`""
-            # exit application
-            [System.Windows.Application]::Current.Shutdown()
+            # close countdown window
+            $cdForm.Close()
             return
         } else {
-            $mins = [int]($count/60)
-            $secs = $count % 60
-            $timerText.Text = ("{0:D2}:{1:D2}" -f $mins, $secs)
-            $count--
+            $mins = [int]($countdownRemaining / 60)
+            $secs = $countdownRemaining % 60
+            $lblTimer.Text = ("{0:D2}:{1:D2}" -f $mins, $secs)
+            $countdownRemaining--
         }
     })
-    $tick.Start()
+
+    $cdForm.ShowDialog() | Out-Null
 }
 
-# Start button click
+# Start button click handler
 $startBtn.Add_Click({
-    $startBtn.IsEnabled = $false
-    $cancelBtn.IsEnabled = $false
-    $status.Text = "Applying firewall rules..."
-    $pd.Text = "Preparing..."
-    Write-Log "User clicked Start. Launching apply-rules job."
-
-    # start apply job
-    $applyJob = Start-ApplyRulesJob -domains $domains -logFile $logFile
-
-    # begin animation timer
-    $animationTimer.Start()
+    $startBtn.Enabled = $false
+    $cancelBtn.Enabled = $false
+    $status.Text = "Status: Applying firewall rules..."
+    Write-Log "User started blocking. Launching apply job."
+    $applyJob = Start-Job -ScriptBlock $applyScript -ArgumentList ($domains, $logFile)
+    $animTimer.Start()
 })
 
-# Cancel button
+# Cancel button click handler
 $cancelBtn.Add_Click({
-    $window.Close()
-    Write-Log "User cancelled. Exiting."
+    Write-Log "User canceled before start. Exiting and removing flag."
+    if (Test-Path $flagPath) { Remove-Item $flagPath -Force -ErrorAction SilentlyContinue }
+    $mainForm.Close()
     exit
 })
 
-# Show the window
-$window.ShowDialog() | Out-Null
+# Show main form
+$mainForm.Add_Shown({ $mainForm.Activate() })
+[void]$mainForm.ShowDialog()
 
-# Keep the script process alive until WPF shuts down
-[System.Windows.Threading.Dispatcher]::Run()
+# keep process alive while UI runs (for safety)
+[System.Windows.Forms.Application]::DoEvents()
