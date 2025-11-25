@@ -259,7 +259,7 @@ $animationTimer.Add_Tick({
 # Countdown window function
 function Start-CountdownWindow {
     param()
-    $durationSec = 30 * 60  # 30 minutes
+    $durationSec = 1 * 60  # 30 minutes
     Write-Log "Starting countdown for $durationSec seconds."
     $cdXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
