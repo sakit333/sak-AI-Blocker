@@ -5,7 +5,7 @@
     PURPOSE     : Advanced GUI version: block AI websites for 30 minutes,
                  show polished GUI with logo, countdown, logging, password,
                  run-once flag, and auto-cleanup (flag + script delete).
-    NOTES       : Run PowerShell AS ADMIN. Place "logo.png" in same folder.
+    NOTES       : Run PowerShell AS ADMIN. Place "logo.png" in same folder (optional).
 ===================================================================================
 #>
 
@@ -16,7 +16,7 @@
 
 $scriptPath = $MyInvocation.MyCommand.Path
 $scriptDir  = Split-Path -Parent $scriptPath
-$logoFile   = Join-Path $scriptDir "logo.png"   # put your logo.png here
+$logoFile   = Join-Path $scriptDir "logo.png"   # put your logo.png here (optional)
 $flagPath   = "$env:ProgramData\AI_Blocker_Executed.flag"
 $logDir     = "$env:ProgramData\AI_Block_Logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
@@ -67,7 +67,7 @@ $btn.Add_Click({
         $form.Close()
     }
     else {
-        [System.Windows.Forms.MessageBox]::Show("Incorrect password.","Authorization Failed",[System.Windows.MessageBoxButtons]::OK,[System.Windows.MessageBoxIcon]::Error) | Out-Null
+        [System.Windows.Forms.MessageBox]::Show("Incorrect password.","Authorization Failed",[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
     }
 })
 $form.Controls.Add($btn)
@@ -113,7 +113,7 @@ foreach ($enc in $EncryptedDomains) {
 Write-Log "Domain list decrypted: $($domains -join ', ')"
 
 # ------------------- BUILD ADVANCED GUI (WPF via XAML) -------------------
-$xaml = @"
+$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         Title="SAK_SHETTY — AI Blocker" Height="360" Width="620" WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
   <Grid Background="#F4F7FB">
@@ -162,7 +162,7 @@ $xaml = @"
     </StackPanel>
   </Grid>
 </Window>
-"@
+'@
 
 # Parse XAML and create window
 $reader = New-Object System.Xml.XmlNodeReader ([xml]$xaml)
@@ -259,9 +259,9 @@ $animationTimer.Add_Tick({
 # Countdown window function
 function Start-CountdownWindow {
     param()
-    $durationSec = 1 * 60  # 30 minutes
+    $durationSec = 30 * 60  # 30 minutes
     Write-Log "Starting countdown for $durationSec seconds."
-    $cdXaml = @"
+    $cdXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         Title="AI Blocker - Timer" Height="180" Width="420" WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
   <Grid Background="#FFFFFF">
@@ -272,7 +272,7 @@ function Start-CountdownWindow {
     </StackPanel>
   </Grid>
 </Window>
-"@
+'@
     $reader2 = New-Object System.Xml.XmlNodeReader ([xml]$cdXaml)
     $cdWindow = [Windows.Markup.XamlReader]::Load($reader2)
     $timerText = $cdWindow.FindName("TimerText")
