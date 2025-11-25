@@ -1,34 +1,58 @@
-$hosts = "C:\Windows\System32\drivers\etc\hosts"
+# AI Blocker – Safe Version (No Stream Errors)
 
-# Remove read-only attribute if set
-attrib -r $hosts
+$hosts = "$env:SystemRoot\System32\drivers\etc\hosts"
+$backup = "$env:TEMP\hosts_backup_sak.txt"
 
-# AI domains
-$domains = @(
-"chatgpt.com","openai.com","claude.ai","anthropic.com","bard.google.com",
-"gemini.google.com","copilot.microsoft.com","you.com","perplexity.ai",
-"grok.com","x.ai","huggingface.co","poe.com","writesonic.com",
-"novelai.net","character.ai","blackbox.ai"
+# AI domains list
+$AIDomains = @(
+    "chat.openai.com",
+    "chatgpt.com",
+    "openai.com",
+    "api.openai.com",
+    "ai.com",
+    "claude.ai",
+    "api.anthropic.com",
+    "bard.google.com",
+    "gemini.google.com",
+    "perplexity.ai",
+    "copilot.microsoft.com",
+    "bing.com/chat",
+    "you.com",
+    "pi.ai",
+    "huggingface.co",
+    "character.ai",
+    "poe.com",
+    "groq.com",
+    "mistral.ai"
 )
 
-Write-Output "Starting AI Blocker (1 minute)..."
+Write-Host "Starting AI Blocker (1 minute)..."
 
-# REMOVE old entries
-(Get-Content $hosts) | Where-Object {$_ -notmatch "#SAK_BLOCK"} | Set-Content $hosts
+# Step 1 → Backup original hosts
+Copy-Item -Force $hosts $backup
 
-# ADD new block entries
-foreach ($d in $domains) {
-    Add-Content $hosts "127.0.0.1 $d #SAK_BLOCK"
-    Add-Content $hosts "0.0.0.0 $d #SAK_BLOCK"
+# Step 2 → Remove previous SAK entries safely
+$clean = Get-Content $hosts | Where-Object { $_ -notmatch "#SAK_BLOCK" }
+
+# Step 3 → Add NEW block entries
+foreach ($d in $AIDomains) {
+    $clean += "127.0.0.1 $d #SAK_BLOCK"
+    $clean += "0.0.0.0 $d #SAK_BLOCK"
 }
 
+# Step 4 → Write hosts file safely (NO STREAM ISSUES)
+Set-Content -Path $hosts -Value $clean -Force
+
+# Flush DNS
 ipconfig /flushdns | Out-Null
+
+Write-Host "AI websites blocked for 1 minute."
 
 Start-Sleep -Seconds 60
 
-# RESTORE hosts file
-(Get-Content $hosts) | Where-Object {$_ -notmatch "#SAK_BLOCK"} | Set-Content $hosts
+Write-Host "Restoring hosts file..."
+Copy-Item -Force $backup $hosts
 
 ipconfig /flushdns | Out-Null
 
-Write-Output "AI websites are UNBLOCKED."
+Write-Host "AI websites are unblocked."
