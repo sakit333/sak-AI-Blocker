@@ -1,5 +1,5 @@
 <#
-Simple GUI AI Blocker (Option A)
+Simple GUI AI Blocker (Option 1 - Fixed)
 Author : DevOps Engineer - SAK_SHETTY
 Purpose: Block AI websites for 30 minutes with a simple WinForms GUI,
          password protection, logging, run-once flag, auto-unblock and auto-delete.
@@ -24,7 +24,7 @@ function Write-Log {
     Add-Content -Path $logFile -Value $line
 }
 
-# Domains (clear text for simplicity)
+# Default domain list (Option 1)
 $domains = @(
     "chatgpt.com","openai.com","platform.openai.com","api.openai.com",
     "claude.ai","anthropic.com","gemini.google.com","bard.google.com",
@@ -80,6 +80,7 @@ $pwdForm.Controls.Add($btn)
 $result = $pwdForm.ShowDialog()
 if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
     Write-Log "Password dialog canceled or wrong - exiting."
+    if (Test-Path $flagPath) { Remove-Item $flagPath -Force -ErrorAction SilentlyContinue }
     exit
 }
 Write-Log "Password authenticated successfully."
@@ -156,74 +157,55 @@ $countdownTimer = New-Object System.Windows.Forms.Timer
 $countdownTimer.Interval = 1000
 $countdownRemaining = 0
 
-# Job objects holders
-$applyJob = $null
-$removeJob = $null
-
-# Helper: apply rules (job)
-$applyScript = {
-    param($domains, $logFile)
-    foreach ($d in $domains) {
-        try {
-            # Try RemoteFqdn first (works on newer Windows)
-            New-NetFirewallRule -DisplayName ("BLOCK_AI_{0}" -f $d) -Direction Outbound -Action Block -RemoteFqdn $d -Profile Any -ErrorAction Stop
-            Add-Content -Path $logFile -Value ("[{0}] Blocked (FQDN): {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $d)
-        } catch {
-            # fallback: resolve IPs and create rules per IP
-            try {
-                $ips = [System.Net.Dns]::GetHostAddresses($d) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | ForEach-Object { $_.IPAddressToString } | Select-Object -Unique
-                if ($ips.Count -gt 0) {
-                    foreach ($ip in $ips) {
-                        New-NetFirewallRule -DisplayName ("BLOCK_AI_{0}_{1}" -f $d, $ip) -Direction Outbound -Action Block -RemoteAddress $ip -Profile Any -ErrorAction SilentlyContinue
-                        Add-Content -Path $logFile -Value ("[{0}] Blocked (IP): {1} -> {2}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $d, $ip)
-                    }
-                } else {
-                    Add-Content -Path $logFile -Value ("[{0}] DNS resolve gave no IPv4 for {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $d)
-                }
-            } catch {
-                Add-Content -Path $logFile -Value ("[{0}] ERROR blocking {1}: {2}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $d, $_)
-            }
-        }
-        Start-Sleep -Milliseconds 200
+# Helper functions for firewall operations (synchronous, UI-friendly)
+function Block-Domain {
+    param($domain)
+    # Try RemoteFqdn first (works on newer Windows)
+    try {
+        New-NetFirewallRule -DisplayName ("BLOCK_AI_{0}" -f $domain) -Direction Outbound -Action Block -RemoteFqdn $domain -Profile Any -ErrorAction Stop
+        Write-Log "Blocked (FQDN): $domain"
+        return $true
+    } catch {
+        Write-Log "RemoteFqdn not supported or failed for $domain. Falling back to IPs."
     }
-    Add-Content -Path $logFile -Value ("[{0}] ApplyRules job completed." -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
+
+    # Fallback: resolve IPv4 addresses and block by IP
+    try {
+        $ips = @()
+        try { $ips = [System.Net.Dns]::GetHostAddresses($domain) } catch { $ips = @() }
+        $ips = $ips | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | ForEach-Object { $_.IPAddressToString } | Select-Object -Unique
+
+        if ($ips.Count -gt 0) {
+            foreach ($ip in $ips) {
+                try {
+                    New-NetFirewallRule -DisplayName ("BLOCK_AI_{0}_{1}" -f $domain, $ip) -Direction Outbound -Action Block -RemoteAddress $ip -Profile Any -ErrorAction SilentlyContinue
+                    Write-Log "Blocked (IP): $domain -> $ip"
+                } catch {
+                    Write-Log "ERROR creating IP rule for $domain -> $ip : $_"
+                }
+            }
+            return $true
+        } else {
+            Write-Log "No IPv4 addresses resolved for $domain"
+            return $false
+        }
+    } catch {
+        Write-Log "Error resolving or blocking $domain : $_"
+        return $false
+    }
 }
 
-# Helper: remove rules (job)
-$removeScript = {
-    param($logFile)
+function Remove-AllRules {
     try {
         Get-NetFirewallRule | Where-Object { $_.DisplayName -like "BLOCK_AI_*" } | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-        Add-Content -Path $logFile -Value ("[{0}] RemoveRules job completed." -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
+        Write-Log "Removed all BLOCK_AI_* rules"
     } catch {
-        Add-Content -Path $logFile -Value ("[{0}] ERROR removing rules: {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $_)
+        Write-Log "Error removing BLOCK_AI_* rules: $_"
     }
 }
 
-# Anim timer Tick event
-$animTimer.Add_Tick({
-    $animCounter = ($animCounter + 4) % 100
-    $pb.Value = $animCounter
-    if ($applyJob -ne $null) {
-        $jobState = $applyJob.State
-        if ($jobState -ne "Running") {
-            # job finished
-            $animTimer.Stop()
-            $pb.Value = 100
-            $status.Text = "Status: Rules applied. Starting 30-minute countdown..."
-            Write-Log "Apply job finished (state=$jobState)."
-            # start countdown (30 min)
-            $countdownRemaining = 30 * 60
-            $countdownTimer.Start()
-            # show countdown window
-            Show-CountdownWindow
-        }
-    }
-})
-
-# Countdown window (simple)
+# Countdown window (simple): shows remaining time and runs countdown timer
 function Show-CountdownWindow {
-    # create a small window showing remaining time
     $cdForm = New-Object System.Windows.Forms.Form
     $cdForm.Text = "AI Blocker - Timer"
     $cdForm.Size = New-Object System.Drawing.Size(360,140)
@@ -245,25 +227,20 @@ function Show-CountdownWindow {
     $lblTimer.Location = New-Object System.Drawing.Point(20,50)
     $cdForm.Controls.Add($lblTimer)
 
-    # countdown tick event updates label
-    $countdownTimer.Add_Tick({
+    # Start countdown
+    $countdownRemaining = 30 * 60
+    $tick = New-Object System.Windows.Forms.Timer
+    $tick.Interval = 1000
+    $tick.Add_Tick({
         if ($countdownRemaining -le 0) {
-            $countdownTimer.Stop()
+            $tick.Stop()
             Write-Log "Countdown finished."
-            # remove firewall rules in background job
-            $removeJob = Start-Job -ScriptBlock $removeScript -ArgumentList ($logFile)
-            Wait-Job -Job $removeJob
-            Receive-Job -Job $removeJob | Out-Null
-            Remove-Job -Job $removeJob -Force -ErrorAction SilentlyContinue
+            # remove firewall rules synchronously
+            Remove-AllRules
             Write-Log "Firewall rules removed."
             # delete flag
             if (Test-Path $flagPath) {
-                try {
-                    Remove-Item $flagPath -Force -ErrorAction SilentlyContinue
-                    Write-Log "Flag file deleted."
-                } catch {
-                    Write-Log "Failed deleting flag: $_"
-                }
+                try { Remove-Item $flagPath -Force -ErrorAction SilentlyContinue; Write-Log "Flag file deleted." } catch { Write-Log "Failed deleting flag: $_" }
             }
             # auto self-delete
             Write-Log "Initiating auto self-delete."
@@ -279,18 +256,53 @@ function Show-CountdownWindow {
             $countdownRemaining--
         }
     })
-
+    $tick.Start()
     $cdForm.ShowDialog() | Out-Null
 }
 
-# Start button click handler
+# Start button click handler (synchronous blocking with UI DoEvents)
 $startBtn.Add_Click({
     $startBtn.Enabled = $false
     $cancelBtn.Enabled = $false
     $status.Text = "Status: Applying firewall rules..."
-    Write-Log "User started blocking. Launching apply job."
-    $applyJob = Start-Job -ScriptBlock $applyScript -ArgumentList ($domains, $logFile)
-    $animTimer.Start()
+    Write-Log "User started blocking. Beginning synchronous block loop."
+
+    $total = $domains.Count
+    if ($total -eq 0) { $total = 1 }
+    $step = [math]::Floor(100 / $total)
+    if ($step -lt 1) { $step = 1 }
+    $progressValue = 0
+    $pb.Value = 0
+    $mainForm.Refresh()
+
+    foreach ($d in $domains) {
+        # update UI before blocking domain
+        $status.Text = "Status: Blocking $d ..."
+        Write-Log "Attempting to block $d"
+        [System.Windows.Forms.Application]::DoEvents()
+
+        $ok = Block-Domain -domain $d
+
+        if ($ok) { $progressValue += $step } else { $progressValue += 1 }
+
+        if ($progressValue -gt 100) { $progressValue = 100 }
+        $pb.Value = $progressValue
+        Write-Log "Progress update: $progressValue%"
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 150
+    }
+
+    # ensure progress is full
+    $pb.Value = 100
+    $status.Text = "Status: Rules applied. Starting countdown..."
+    Write-Log "Blocking loop completed. Progress set to 100%."
+    [System.Windows.Forms.Application]::DoEvents()
+
+    # start countdown window (this blocks until finished)
+    Show-CountdownWindow
+
+    # After countdown window closes, close main form if still open
+    if ($mainForm.Visible) { $mainForm.Close() }
 })
 
 # Cancel button click handler
