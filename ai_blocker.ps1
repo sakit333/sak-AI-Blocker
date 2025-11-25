@@ -1,47 +1,84 @@
-# ============================
+# ====================================================
 # AI BLOCKER – SAK_SHETTY
-# Blocks AI websites for 30 minutes
-# Auto unblocks + auto cleanup
-# ============================
+# Always cleans old entries and blocks AI websites
+# Auto-unblocks after 1 minute
+# ====================================================
 
-Write-Host "Blocking AI websites for 30 minutes..." -ForegroundColor Green
+Write-Host "Starting AI Blocker (1 minute)..." -ForegroundColor Green
 
 $hosts = "C:\Windows\System32\drivers\etc\hosts"
 $backup = "$env:TEMP\hosts_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
 
+# -------------------------
 # 1. Backup hosts file
+# -------------------------
 Copy-Item $hosts $backup -Force
 
-# 2. List of AI websites
+# -------------------------
+# 2. AI Block List (Recommended)
+# -------------------------
 $blockList = @(
     "chatgpt.com",
     "openai.com",
-    "bard.google.com",
+    "api.openai.com",
+    "platform.openai.com",
     "claude.ai",
-    "character.ai",
+    "api.anthropic.com",
+    "gemini.google.com",
+    "bard.google.com",
+    "ai.google.dev",
     "perplexity.ai",
-    "gpt4free.net"
+    "www.perplexity.ai",
+    "character.ai",
+    "beta.character.ai",
+    "copilot.microsoft.com",
+    "bing.com",
+    "you.com",
+    "poe.com",
+    "huggingface.co",
+    "blackbox.ai",
+    "ora.ai",
+    "reka.ai"
 )
 
-# 3. Write entries to hosts
-foreach ($site in $blockList) {
-    Add-Content -Path $hosts -Value "127.0.0.1 $site"
-    Add-Content -Path $hosts -Value "0.0.0.0 $site"
+# -------------------------
+# 3. Clean old blocking entries
+# -------------------------
+Write-Host "Removing old AI block entries..." -ForegroundColor Yellow
+$hostsContent = Get-Content $hosts
+
+foreach ($domain in $blockList) {
+    $hostsContent = $hostsContent | Where-Object {$_ -notmatch $domain}
 }
 
-Write-Host "AI Websites BLOCKED. Timer started (30 minutes)..." -ForegroundColor Yellow
+$hostsContent | Set-Content $hosts -Force
 
-# 4. Wait 30 minutes
-Start-Sleep -Seconds 1800
+# -------------------------
+# 4. Add fresh block entries
+# -------------------------
+Write-Host "Adding new AI block entries..." -ForegroundColor Cyan
+foreach ($domain in $blockList) {
+    Add-Content -Path $hosts -Value "127.0.0.1 $domain"
+    Add-Content -Path $hosts -Value "0.0.0.0 $domain"
+}
 
-Write-Host "Unblocking websites..." -ForegroundColor Cyan
+Write-Host "`nAI Websites BLOCKED for 1 minute..." -ForegroundColor Green
 
-# 5. Restore original hosts file
+# -------------------------
+# 5. Wait 1 minute
+# -------------------------
+Start-Sleep -Seconds 60
+
+Write-Host "Unblocking AI websites..." -ForegroundColor Yellow
+
+# -------------------------
+# 6. Restore original hosts file (full cleanup)
+# -------------------------
 Copy-Item $backup $hosts -Force
 
-Write-Host "Websites unblocked." -ForegroundColor Green
-
-# 6. Delete backup
+# -------------------------
+# 7. Delete backup
+# -------------------------
 Remove-Item $backup -Force
 
-Write-Host "Cleanup done. AI Blocker finished." -ForegroundColor White
+Write-Host "Done. AI access restored." -ForegroundColor Green
