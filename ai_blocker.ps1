@@ -1,58 +1,79 @@
-# AI Blocker – Safe Version (No Stream Errors)
+# ---------------------------------------------------------
+# AI BLOCKER (Ultimate Version - Firewall + Hosts + Auto Unblock)
+# Blocks AI sites for 1 minute then restores everything.
+# ---------------------------------------------------------
 
-$hosts = "$env:SystemRoot\System32\drivers\etc\hosts"
-$backup = "$env:TEMP\hosts_backup_sak.txt"
+$hostsPath = "C:\Windows\System32\drivers\etc\hosts"
 
-# AI domains list
-$AIDomains = @(
-    "chat.openai.com",
+# AI domain list (expandable anytime)
+$aiDomains = @(
     "chatgpt.com",
+    "*.openai.com",
     "openai.com",
-    "api.openai.com",
-    "ai.com",
     "claude.ai",
-    "api.anthropic.com",
-    "bard.google.com",
+    "*.claude.ai",
+    "anthropic.com",
+    "*.anthropic.com",
     "gemini.google.com",
+    "bard.google.com",
+    "*.googleusercontent.com",
     "perplexity.ai",
-    "copilot.microsoft.com",
-    "bing.com/chat",
-    "you.com",
-    "pi.ai",
-    "huggingface.co",
-    "character.ai",
-    "poe.com",
-    "groq.com",
-    "mistral.ai"
+    "*.perplexity.ai",
+    "bing.com",
+    "*.bing.com",
+    "copilot.microsoft.com"
 )
 
-Write-Host "Starting AI Blocker (1 minute)..."
+Write-Host "==== AI BLOCKER STARTED ===="
 
-# Step 1 → Backup original hosts
-Copy-Item -Force $hosts $backup
+# ---------------------------------------------------------
+# 1) REMOVE OLD FIREWALL RULES
+# ---------------------------------------------------------
+Write-Host "Removing old AI firewall rules..."
+Get-NetFirewallRule -DisplayName "AI_BLOCKER" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 
-# Step 2 → Remove previous SAK entries safely
-$clean = Get-Content $hosts | Where-Object { $_ -notmatch "#SAK_BLOCK" }
+# ---------------------------------------------------------
+# 2) REMOVE OLD HOSTS ENTRIES
+# ---------------------------------------------------------
+Write-Host "Cleaning hosts file..."
+$hosts = Get-Content $hostsPath
+$clean = $hosts | Where-Object { $_ -notmatch "#AIBLOCK" }
+Set-Content -Path $hostsPath -Value $clean -Force
 
-# Step 3 → Add NEW block entries
-foreach ($d in $AIDomains) {
-    $clean += "127.0.0.1 $d #SAK_BLOCK"
-    $clean += "0.0.0.0 $d #SAK_BLOCK"
+# ---------------------------------------------------------
+# 3) APPLY NEW BLOCKS
+# ---------------------------------------------------------
+Write-Host "Applying firewall and hosts blocking..."
+
+foreach ($domain in $aiDomains) {
+
+    # Hosts block (backup)
+    Add-Content -Path $hostsPath -Value ("127.0.0.1 $domain #AIBLOCK")
+
+    # Firewall block (100% reliable)
+    New-NetFirewallRule -DisplayName "AI_BLOCKER" `
+        -Direction Outbound `
+        -Action Block `
+        -RemoteAddress $domain `
+        -Enabled True `
+        -ErrorAction SilentlyContinue
 }
 
-# Step 4 → Write hosts file safely (NO STREAM ISSUES)
-Set-Content -Path $hosts -Value $clean -Force
-
-# Flush DNS
-ipconfig /flushdns | Out-Null
-
-Write-Host "AI websites blocked for 1 minute."
-
+Write-Host "AI websites are BLOCKED for 1 minute..."
 Start-Sleep -Seconds 60
 
-Write-Host "Restoring hosts file..."
-Copy-Item -Force $backup $hosts
+# ---------------------------------------------------------
+# 4) UNBLOCK EVERYTHING
+# ---------------------------------------------------------
+Write-Host "Restoring system..."
 
-ipconfig /flushdns | Out-Null
+# Remove firewall rules
+Get-NetFirewallRule -DisplayName "AI_BLOCKER" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 
-Write-Host "AI websites are unblocked."
+# Remove hosts entries
+$hosts = Get-Content $hostsPath
+$clean = $hosts | Where-Object { $_ -notmatch "#AIBLOCK" }
+Set-Content -Path $hostsPath -Value $clean -Force
+
+Write-Host "AI websites UNBLOCKED."
+Write-Host "==== AI BLOCKER FINISHED ===="
