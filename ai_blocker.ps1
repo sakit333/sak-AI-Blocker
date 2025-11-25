@@ -1,7 +1,7 @@
 # ====================================================
-# AI BLOCKER – SAK_SHETTY
-# Always cleans old entries and blocks AI websites
-# Auto-unblocks after 1 minute
+# AI BLOCKER (1 minute) – SAK_SHETTY
+# Error-proof version. Works even if hosts file is locked.
+# ALWAYS removes old entries and applies new ones.
 # ====================================================
 
 Write-Host "Starting AI Blocker (1 minute)..." -ForegroundColor Green
@@ -15,70 +15,86 @@ $backup = "$env:TEMP\hosts_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
 Copy-Item $hosts $backup -Force
 
 # -------------------------
-# 2. AI Block List (Recommended)
+# 2. Required to unlock file
+# -------------------------
+Write-Host "Stopping DNS Client service to unlock hosts file..." -ForegroundColor Yellow
+Stop-Service -Name "Dnscache" -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+
+# -------------------------
+# 3. AI Block List
 # -------------------------
 $blockList = @(
-    "chatgpt.com",
-    "openai.com",
-    "api.openai.com",
-    "platform.openai.com",
-    "claude.ai",
-    "api.anthropic.com",
-    "gemini.google.com",
-    "bard.google.com",
-    "ai.google.dev",
-    "perplexity.ai",
-    "www.perplexity.ai",
-    "character.ai",
-    "beta.character.ai",
+    "chatgpt.com","www.chatgpt.com",
+    "openai.com","api.openai.com","platform.openai.com","www.openai.com",
+    "claude.ai","www.claude.ai","api.anthropic.com",
+    "gemini.google.com","bard.google.com","ai.google.dev",
+    "perplexity.ai","www.perplexity.ai",
+    "character.ai","beta.character.ai",
+    "poe.com","www.poe.com",
+    "you.com","www.you.com",
     "copilot.microsoft.com",
-    "bing.com",
-    "you.com",
-    "poe.com",
-    "huggingface.co",
-    "blackbox.ai",
-    "ora.ai",
-    "reka.ai"
+    "bing.com","www.bing.com",
+    "huggingface.co","www.huggingface.co",
+    "blackbox.ai","www.blackbox.ai",
+    "ora.ai","www.ora.ai",
+    "reka.ai","www.reka.ai"
 )
 
 # -------------------------
-# 3. Clean old blocking entries
+# 4. Clean old block entries
 # -------------------------
-Write-Host "Removing old AI block entries..." -ForegroundColor Yellow
-$hostsContent = Get-Content $hosts
-
+Write-Host "Cleaning old block entries..." -ForegroundColor Yellow
+$hostsContent = Get-Content $hosts -ErrorAction SilentlyContinue
 foreach ($domain in $blockList) {
     $hostsContent = $hostsContent | Where-Object {$_ -notmatch $domain}
 }
-
 $hostsContent | Set-Content $hosts -Force
 
 # -------------------------
-# 4. Add fresh block entries
+# 5. Add new entries safely
 # -------------------------
-Write-Host "Adding new AI block entries..." -ForegroundColor Cyan
+Write-Host "Adding new entries..." -ForegroundColor Cyan
+
 foreach ($domain in $blockList) {
-    Add-Content -Path $hosts -Value "127.0.0.1 $domain"
-    Add-Content -Path $hosts -Value "0.0.0.0 $domain"
+    try {
+        Add-Content -Path $hosts -Value "127.0.0.1 $domain" -ErrorAction Stop
+        Add-Content -Path $hosts -Value "0.0.0.0 $domain" -ErrorAction Stop
+    } catch {
+        Write-Host "Retrying write after file unlock..." -ForegroundColor Red
+        Start-Sleep -Milliseconds 300
+        Add-Content -Path $hosts -Value "127.0.0.1 $domain"
+        Add-Content -Path $hosts -Value "0.0.0.0 $domain"
+    }
 }
 
 Write-Host "`nAI Websites BLOCKED for 1 minute..." -ForegroundColor Green
 
 # -------------------------
-# 5. Wait 1 minute
+# 6. Restart DNS service
+# -------------------------
+Start-Service -Name "Dnscache" -ErrorAction SilentlyContinue
+
+# -------------------------
+# 7. Wait exactly 60 seconds
 # -------------------------
 Start-Sleep -Seconds 60
 
 Write-Host "Unblocking AI websites..." -ForegroundColor Yellow
 
 # -------------------------
-# 6. Restore original hosts file (full cleanup)
+# 8. Restore backup (clean unblock)
 # -------------------------
 Copy-Item $backup $hosts -Force
 
 # -------------------------
-# 7. Delete backup
+# 9. Restart DNS again
+# -------------------------
+Start-Service -Name "Dnscache" -ErrorAction SilentlyContinue
+
+# -------------------------
+# 10. Remove temporary backup
 # -------------------------
 Remove-Item $backup -Force
 
-Write-Host "Done. AI access restored." -ForegroundColor Green
+Write-Host "AI access restored successfully." -ForegroundColor Green
