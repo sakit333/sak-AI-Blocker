@@ -1,62 +1,34 @@
-# =======================
-#  SAK_SHETTY AI BLOCKER
-#  Version: Final Stable
-#  Duration: 1 minute
-# =======================
-
 $hosts = "C:\Windows\System32\drivers\etc\hosts"
-$backup = "$env:TEMP\hosts_backup_sak.txt"
-$duration = 60
 
+# Remove read-only attribute if set
+attrib -r $hosts
+
+# AI domains
 $domains = @(
-    "chatgpt.com","www.chatgpt.com",
-    "chat.openai.com","api.openai.com","platform.openai.com",
-    "claude.ai","www.claude.ai","api.anthropic.com",
-    "gemini.google.com","bard.google.com","ai.google.dev",
-    "copilot.microsoft.com","bing.com/chat",
-    "perplexity.ai","www.perplexity.ai","api.perplexity.ai",
-    "poe.com","www.poe.com",
-    "you.com","api.you.com",
-    "huggingface.co","api-inference.huggingface.co",
-    "writesonic.com","api.writesonic.com",
-    "deepseek.com","api.deepseek.com",
-    "pi.ai","www.pi.ai",
-    "replika.com","c.ai","character.ai",
-    "meta.ai","llama.meta.com"
+"chatgpt.com","openai.com","claude.ai","anthropic.com","bard.google.com",
+"gemini.google.com","copilot.microsoft.com","you.com","perplexity.ai",
+"grok.com","x.ai","huggingface.co","poe.com","writesonic.com",
+"novelai.net","character.ai","blackbox.ai"
 )
 
-Write-Host "Starting AI Blocker for 1 minute..."
+Write-Output "Starting AI Blocker (1 minute)..."
 
-# -------------------------------
-# 1. Backup hosts file (safe mode)
-# -------------------------------
-Copy-Item $hosts $backup -Force
+# REMOVE old entries
+(Get-Content $hosts) | Where-Object {$_ -notmatch "#SAK_BLOCK"} | Set-Content $hosts
 
-# -------------------------------------------------------------
-# 2. Remove old AI entries (only SAK_SHETTY tagged) – SAFE CLEAN
-# -------------------------------------------------------------
-$clean = (Get-Content $hosts | Where-Object { $_ -notmatch "#SAK_BLOCK" })
-Set-Content -Path $hosts -Value $clean -Force
-
-# --------------------------------
-# 3. Add new block entries CLEANLY
-# --------------------------------
+# ADD new block entries
 foreach ($d in $domains) {
-    Add-Content -Path $hosts -Value "127.0.0.1 $d #SAK_BLOCK"
-    Add-Content -Path $hosts -Value "0.0.0.0 $d #SAK_BLOCK"
+    Add-Content $hosts "127.0.0.1 $d #SAK_BLOCK"
+    Add-Content $hosts "0.0.0.0 $d #SAK_BLOCK"
 }
 
-Write-Host "AI websites are BLOCKED."
+ipconfig /flushdns | Out-Null
 
-# -----------------------
-# 4. Wait for 1 minute
-# -----------------------
-Start-Sleep -Seconds $duration
+Start-Sleep -Seconds 60
 
-# ---------------------------
-# 5. Unblock automatically
-# ---------------------------
-$finalClean = (Get-Content $hosts | Where-Object { $_ -notmatch "#SAK_BLOCK" })
-Set-Content -Path $hosts -Value $finalClean -Force
+# RESTORE hosts file
+(Get-Content $hosts) | Where-Object {$_ -notmatch "#SAK_BLOCK"} | Set-Content $hosts
 
-Write-Host "AI websites UNBLOCKED automatically."
+ipconfig /flushdns | Out-Null
+
+Write-Output "AI websites are UNBLOCKED."
